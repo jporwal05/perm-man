@@ -1,8 +1,9 @@
-import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:android_package_manager/android_package_manager.dart';
+import 'package:installed_apps/app_info.dart';
+import 'package:installed_apps/installed_apps.dart';
 
 class AppListPage extends StatefulWidget {
   final String permission;
@@ -14,8 +15,8 @@ class AppListPage extends StatefulWidget {
 }
 
 class _AppListPageState extends State<AppListPage> {
-  List<ApplicationInfo>? _installedApps;
-  late List<ApplicationInfo> _filteredApps = [];
+  List<AppInfo>? _installedApps;
+  late List<AppInfo> _filteredApps = [];
 
   @override
   void initState() {
@@ -26,14 +27,14 @@ class _AppListPageState extends State<AppListPage> {
   Future<void> _getInstalledApps() async {
     final pm = AndroidPackageManager();
 
-    final installedApps = await pm.getInstalledApplications();
+    final installedApps = await InstalledApps.getInstalledApps(true, true);
 
-    final futures = installedApps!.map((app) => _hasPermission(app));
+    final futures = installedApps!.map((app) => _hasPermission(app.packageName!));
     final results = await Future.wait(futures);
 
-    final filteredApps = <ApplicationInfo>[];
+    final filteredApps = <AppInfo>[];
     for (int i = 0; i < installedApps!.length; i++) {
-      if (installedApps![i].enabled && results[i] == CheckPermissionStatus.granted) {
+      if (results[i] == CheckPermissionStatus.granted) {
         filteredApps.add(installedApps[i]);
       }
     }
@@ -44,21 +45,11 @@ class _AppListPageState extends State<AppListPage> {
     });
   }
 
-  Future<CheckPermissionStatus?> _hasPermission(ApplicationInfo app) async {
+  Future<CheckPermissionStatus?> _hasPermission(String packageName) async {
     final pm = AndroidPackageManager();
     CheckPermissionStatus? status = await pm.checkPermission(
-        packageName: app.packageName!, permName: widget.permission);
+        packageName: packageName, permName: widget.permission);
     return status ?? CheckPermissionStatus.denied;
-  }
-
-  void _removePermission(ApplicationInfo app) async {
-    final pm = AndroidPackageManager();
-    CheckPermissionStatus? status =
-    await pm.checkPermission(packageName: app.packageName!, permName: widget.permission);
-    if (status == CheckPermissionStatus.granted) {
-      pm.removePermission(widget.permission);
-    }
-    _getInstalledApps();
   }
 
   @override
@@ -71,7 +62,7 @@ class _AppListPageState extends State<AppListPage> {
           ? ListView.builder(
               itemCount: _filteredApps.length,
               itemBuilder: (context, index) {
-                ApplicationInfo appInfo = _filteredApps[index];
+                AppInfo appInfo = _filteredApps[index];
                 return Padding(
                     padding: const EdgeInsets.symmetric(
                       vertical: 12.0,
@@ -80,7 +71,7 @@ class _AppListPageState extends State<AppListPage> {
                       leading: SizedBox.square(
                         dimension: 48.0,
                         child: FutureBuilder<Uint8List?>(
-                          future: appInfo.getAppIcon(),
+                          future: Future(() => appInfo.icon),
                           builder: (context, snapshot,) {
                             if (snapshot.hasData) {
                               final iconBytes = snapshot.data!;

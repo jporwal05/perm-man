@@ -1,3 +1,6 @@
+import 'dart:ffi';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:android_package_manager/android_package_manager.dart';
 
@@ -12,7 +15,7 @@ class AppListPage extends StatefulWidget {
 
 class _AppListPageState extends State<AppListPage> {
   List<ApplicationInfo>? _installedApps;
-  late final List<ApplicationInfo> _filteredApps = [];
+  late List<ApplicationInfo> _filteredApps = [];
 
   @override
   void initState() {
@@ -22,26 +25,23 @@ class _AppListPageState extends State<AppListPage> {
 
   Future<void> _getInstalledApps() async {
     final pm = AndroidPackageManager();
-    ApplicationInfoFlags flags = ApplicationInfoFlags({
-      PMFlag.getPermissions,
-      PMFlag.getMetaData,
-    });
-    List<ApplicationInfo>? installedApps =
-        await pm.getInstalledApplications(flags: flags);
+
+    final installedApps = await pm.getInstalledApplications();
+
+    final futures = installedApps!.map((app) => _hasPermission(app));
+    final results = await Future.wait(futures);
+
+    final filteredApps = <ApplicationInfo>[];
+    for (int i = 0; i < installedApps!.length; i++) {
+      if (installedApps![i].enabled && results[i] == CheckPermissionStatus.granted) {
+        filteredApps.add(installedApps[i]);
+      }
+    }
+
     setState(() {
       _installedApps = installedApps;
+      _filteredApps = filteredApps;
     });
-    for (int i = 0; i < _installedApps!.length; i++) {
-      _hasPermission(_installedApps![i]).then((status) => {
-            if (_installedApps![i].enabled &&
-                status == CheckPermissionStatus.granted)
-              {
-                setState(() {
-                  _filteredApps.add(_installedApps![i]);
-                })
-              }
-          });
-    }
   }
 
   Future<CheckPermissionStatus?> _hasPermission(ApplicationInfo app) async {
@@ -69,14 +69,38 @@ class _AppListPageState extends State<AppListPage> {
       ),
       body: _installedApps != null
           ? ListView.builder(
-        itemCount: _filteredApps.length,
-        itemBuilder: (context, index) {
-          ApplicationInfo appInfo = _filteredApps[index];
-          return ListTile(
-            title: Text(appInfo.name ?? 'No name'),
-          );
-        },
-      )
+              itemCount: _filteredApps.length,
+              itemBuilder: (context, index) {
+                ApplicationInfo appInfo = _filteredApps[index];
+                return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12.0,
+                    ),
+                    child: ListTile(
+                      leading: SizedBox.square(
+                        dimension: 48.0,
+                        child: FutureBuilder<Uint8List?>(
+                          future: appInfo.getAppIcon(),
+                          builder: (context, snapshot,) {
+                            if (snapshot.hasData) {
+                              final iconBytes = snapshot.data!;
+                              return Image.memory(
+                                iconBytes,
+                                fit: BoxFit.fill,
+                              );
+                            }
+                            if (snapshot.hasError) {
+                              return const Icon(Icons.error, color: Colors.red,);
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                      ),
+                      title: Text(
+                          appInfo.name ?? appInfo.packageName ?? 'No name'),
+                    ));
+              },
+            )
           : const Center(
         child: CircularProgressIndicator(),
       ),
